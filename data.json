@@ -1,1 +1,12 @@
-{}
+{
+  "2b8f7a6f-1c23-4e5a-bd3a-7e90b9ff1234": {
+    "user_id": 123456789,
+    "file_id": "AgACAgUAAxkBA...",
+    "link": "https://t.me/nama_bot?start=2b8f7a6f-1c23-4e5a-bd3a-7e90b9ff1234"
+  },
+  "3c9d8e7f-6a21-4c7b-8d2e-9f80e7aa5678": {
+    "user_id": 123456789,
+    "file_id": "AgACAgUAAxkBB...",
+    "link": "https://t.me/nama_bot?start=3c9d8e7f-6a21-4c7b-8d2e-9f80e7aa5678"
+  }
+}
