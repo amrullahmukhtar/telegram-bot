@@ -1,159 +1,95 @@
-import json
-import os
-import uuid
+import json, os, uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# ===============================
-# CONFIG
-# ===============================
-# Ambil token dari environment variable (lebih aman)
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN belum di-set di environment variable!")
-
+TOKEN = "ISI_TOKEN_BOTMU"   # << ganti dengan token bot kamu
 DATA_FILE = "data.json"
 
-# Ganti dengan ID channel & group kamu
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002792301572"))
-GROUP_ID = int(os.getenv("GROUP_ID", "-1002808214921"))
-
-# ===============================
-# DATA MANAGEMENT
-# ===============================
-# Load data
-if os.path.exists(DATA_FILE):
+# -------------------- Data Handling --------------------
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {}
     with open(DATA_FILE, "r") as f:
-        DATA = json.load(f)
-else:
-    DATA = {}
+        return json.load(f)
 
-# Simpan data
-def save_data():
+def save_data(data):
     with open(DATA_FILE, "w") as f:
-        json.dump(DATA, f)
+        json.dump(data, f, indent=4)
 
-# ===============================
-# CHECK MEMBERSHIP
-# ===============================
-async def is_member(bot, user_id: int) -> bool:
-    try:
-        ch_status = await bot.get_chat_member(CHANNEL_ID, user_id)
-        gc_status = await bot.get_chat_member(GROUP_ID, user_id)
-        return (
-            ch_status.status not in ["left", "kicked"]
-            and gc_status.status not in ["left", "kicked"]
-        )
-    except Exception as e:
-        print(f"⚠️ Error cek member: {e}")
-        return False
-
-# ===============================
-# START COMMAND
-# ===============================
+# -------------------- Command Start --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    keyboard = [
+        [
+            InlineKeyboardButton("Join Ch", url="https://t.me/+PmiJeujimNA1MWM9"),
+            InlineKeyboardButton("Join Gc", url="https://t.me/+l6NLPfofBHg1N2Q1"),
+        ],
+        [InlineKeyboardButton("🔄 Coba Lagi", callback_data="retry_start")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Cek apakah sudah join
-    if not await is_member(context.bot, user_id):
-        keyboard = [
-            [
-                InlineKeyboardButton("📢 Join Ch", url="https://t.me/+PmiJeujimNA1MWM9"),
-                InlineKeyboardButton("👥 Join Gc", url="https://t.me/+l6NLPfofBHg1N2Q1"),
-            ],
-            [InlineKeyboardButton("🔄 Coba Lagi", callback_data="retry_start")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        if update.message:
-            await update.message.reply_text(
-                "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
-                reply_markup=reply_markup,
-            )
-        elif update.callback_query:
-            await update.callback_query.edit_message_text(
-                "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
-                reply_markup=reply_markup,
-            )
-        return
-
-    # Kalau pakai argumen (link khusus)
-    if context.args:
-        key = context.args[0]
-        if key in DATA:
-            file_id = DATA[key]["file_id"]
-            caption = DATA[key]["caption"]
-
-            try:
-                await update.message.reply_photo(photo=file_id, caption=caption)
-            except Exception as e:
-                await update.message.reply_text("⚠️ Gagal mengirim foto.")
-                print(f"Error kirim foto: {e}")
-        else:
-            await update.message.reply_text("⚠️ Link tidak valid atau sudah kadaluarsa.")
-    else:
-        await update.message.reply_text("Halo Bub 👋 Donatenya mana?")
-
-# ===============================
-# HANDLE FOTO DARI USER
-# ===============================
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.photo:
-        return
-
-    caption = update.message.caption if update.message.caption else "(Tidak ada caption)"
-
-    # Ambil file_id dari resolusi tertinggi
-    photo = update.message.photo[-1]
-    file_id = photo.file_id
-
-    key = str(uuid.uuid4())[:8]
-    DATA[key] = {"file_id": file_id, "caption": caption}
-    save_data()
-
-    # Buat link
-    bot_username = (await context.bot.get_me()).username
-    link = f"https://t.me/{bot_username}?start={key}"
-
-    try:
-        with open("foto_1.jpg", "rb") as photo_file:
-            await update.message.reply_photo(
-                photo=photo_file,
-                caption=f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}",
-            )
-    except FileNotFoundError:
+    if update.message:
         await update.message.reply_text(
-            f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
+            reply_markup=reply_markup
+        )
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(
+            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
+            reply_markup=reply_markup
         )
 
-# ===============================
-# CALLBACK HANDLER (BUTTON)
-# ===============================
+# -------------------- Callback Retry --------------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data == "retry_start":
-        # Panggil ulang start tanpa argumen
-        await start(update, context)
+        user_id = query.from_user.id
+        data = load_data()
 
-# ===============================
-# MAIN FUNCTION
-# ===============================
+        # ambil semua foto user ini
+        user_photos = [
+            val for val in data.values()
+            if val["user_id"] == user_id
+        ]
+
+        if user_photos:
+            last_photo = user_photos[-1]  # ambil foto terakhir
+            await query.message.reply_photo(
+                photo=last_photo["file_id"],
+                caption=f"📸 Foto terakhir kamu.\nLink share: {last_photo['link']}"
+            )
+        else:
+            await start(update, context)
+
+# -------------------- Handler Foto --------------------
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    photo = update.message.photo[-1]
+    file_id = photo.file_id
+
+    unique_key = str(uuid.uuid4())
+    data = load_data()
+    link = f"https://t.me/{context.bot.username}?start={unique_key}"
+
+    # simpan foto baru (tidak overwrite, jadi semua history tersimpan)
+    data[unique_key] = {
+        "user_id": user.id,
+        "file_id": file_id,
+        "link": link
+    }
+    save_data(data)
+
+    await update.message.reply_text(f"✅ Foto disimpan!\nLink share: {link}")
+
+# -------------------- Main --------------------
 def main():
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 Bot aktif dengan proteksi member.")
     app.run_polling()
 
 if __name__ == "__main__":
