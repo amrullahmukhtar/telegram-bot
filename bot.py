@@ -1,8 +1,15 @@
 import json
 import os
 import uuid
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes,
+)
 
 # Ambil token dari environment variable
 TOKEN = os.getenv("BOT_TOKEN")
@@ -45,11 +52,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not await is_member(context.bot, user_id):
-        await update.message.reply_text(
-            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!\n\n"
-            "👉 Channel: https://t.me/+PmiJeujimNA1MWM9\n"
-            "👉 Group: https://t.me/+l6NLPfofBHg1N2Q1"
-        )
+        keyboard = [
+            [
+                InlineKeyboardButton("📢 Join Ch", url="https://t.me/+PmiJeujimNA1MWM9"),
+                InlineKeyboardButton("👥 Join Gc", url="https://t.me/+l6NLPfofBHg1N2Q1"),
+            ],
+            [InlineKeyboardButton("🔄 Coba Lagi", callback_data="retry_start")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if update.message:
+            await update.message.reply_text(
+                "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
+                reply_markup=reply_markup,
+            )
+        elif update.callback_query:
+            await update.callback_query.edit_message_text(
+                "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
+                reply_markup=reply_markup,
+            )
         return
 
     if context.args:
@@ -59,10 +80,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = DATA[key]["caption"]
 
             try:
-                await update.message.reply_photo(
-                    photo=file_id,
-                    caption=caption
-                )
+                await update.message.reply_photo(photo=file_id, caption=caption)
             except Exception as e:
                 await update.message.reply_text("⚠️ Gagal mengirim foto.")
                 print(f"Error kirim foto: {e}")
@@ -83,10 +101,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = photo.file_id
 
     key = str(uuid.uuid4())[:8]
-    DATA[key] = {
-        "file_id": file_id,
-        "caption": caption
-    }
+    DATA[key] = {"file_id": file_id, "caption": caption}
     save_data()
 
     # Buat link
@@ -97,18 +112,29 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open("foto_1.jpg", "rb") as photo_file:
             await update.message.reply_photo(
                 photo=photo_file,
-                caption=f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+                caption=f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}",
             )
     except FileNotFoundError:
         await update.message.reply_text(
             f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
         )
 
+# Handler tombol (callback query)
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "retry_start":
+        # Panggil ulang start tanpa argumen
+        await start(update, context)
+
 # Main
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
     print("🤖 Bot aktif dengan proteksi member.")
     app.run_polling()
 
