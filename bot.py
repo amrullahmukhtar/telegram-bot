@@ -1,12 +1,18 @@
 import json, os, uuid
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes
+)
 
 # Ambil variabel dari Railway
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 GROUP_ID = int(os.getenv("GROUP_ID"))
 DATA_FILE = "data.json"
+
+# Daftar admin yang boleh upload foto
+ADMINS = [8459702708, 7665073181]  # ganti dengan Telegram user_id kamu
 
 # Load data
 if os.path.exists(DATA_FILE):
@@ -75,12 +81,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("retry_"):
         key = query.data.replace("retry_", "").strip()
         if key:
-            await start(update, context)  # panggil ulang start dengan argumen lama
+            context.args = [key]  # simpan argumen lama
         else:
-            await start(update, context)
+            context.args = []
+        await start(update, context)
 
-# Handler foto masuk dari user
+# Handler foto masuk dari user (khusus admin)
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    if user_id not in ADMINS:
+        await update.message.reply_text("🚫 Kamu bukan admin, tidak boleh upload foto!")
+        return
+
     if not update.message or not update.message.photo:
         return
 
@@ -115,56 +128,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 def main():
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
-    app.add_handler(CommandHandler("retry", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_photo))
 
-    print("🤖 Bot aktif dengan proteksi member.")
+    # Command handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("retry", start))
+
+    # Callback button handler
+    app.add_handler(CallbackQueryHandler(button_handler))
+
+    # Photo handler
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+    print("🤖 Bot aktif dengan proteksi member & admin upload only.")
     app.run_polling()
 
 if __name__ == "__main__":
