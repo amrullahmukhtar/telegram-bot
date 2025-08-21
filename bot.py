@@ -1,191 +1,171 @@
-import os
-import json
-import uuid
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    filters, ContextTypes, CallbackQueryHandler
-)
+import json, os, uuid
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# File untuk menyimpan data user
+# Ambil variabel dari Railway
+TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+GROUP_ID = int(os.getenv("GROUP_ID"))
 DATA_FILE = "data.json"
 
-
-# ---------------------------
-# Utility untuk load/simpan data
-# ---------------------------
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {}
+# Load data
+if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
-        return json.load(f)
+        DATA = json.load(f)
+else:
+    DATA = {}
 
-
-def save_data(data):
+# Simpan data
+def save_data():
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(DATA, f)
 
+# Cek apakah user sudah join channel & group
+async def is_member(bot, user_id):
+    try:
+        ch_status = await bot.get_chat_member(CHANNEL_ID, user_id)
+        gc_status = await bot.get_chat_member(GROUP_ID, user_id)
+        return (ch_status.status not in ["left", "kicked"]) and (gc_status.status not in ["left", "kicked"])
+    except Exception as e:
+        print(f"Error cek member: {e}")
+        return False
 
-# ---------------------------
-# Command /start
-# ---------------------------
+# /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = load_data()
+    user_id = update.effective_user.id
 
-    if user_id not in data:
-        data[user_id] = {"history": []}
-        save_data(data)
-
-    keyboard = [[InlineKeyboardButton("Coba Lagi", callback_data="retry_start")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        f"Halo {update.effective_user.first_name}! 👋\n\n"
-        "Saya adalah bot demo. Kirimkan teks atau foto untuk disimpan ke history.",
-        reply_markup=reply_markup
-    )
-
-
-# ---------------------------
-# Command /help
-# ---------------------------
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "/start - Mulai bot\n"
-        "/help - Bantuan\n"
-        "/history - Lihat riwayat pesan/foto kamu"
-    )
-
-
-# ---------------------------
-# Command /history
-# ---------------------------
-async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = load_data()
-
-    if user_id not in data or not data[user_id]["history"]:
-        await update.message.reply_text("Belum ada history tersimpan.")
+    # Jika belum join → kasih tombol join + coba lagi
+    if not await is_member(context.bot, user_id):
+        keyboard = [
+            [InlineKeyboardButton("📢 Join Channel", url="https://t.me/+PmiJeujimNA1MWM9")],
+            [InlineKeyboardButton("💬 Join Group", url="https://t.me/+l6NLPfofBHg1N2Q1")],
+            [InlineKeyboardButton("🔄 Coba Lagi", callback_data=f"retry_{' '.join(context.args) if context.args else ''}")]
+        ]
+        await update.message.reply_text(
+            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
-    text_history = "📜 Riwayat kamu:\n\n"
-    for i, item in enumerate(data[user_id]["history"], start=1):
-        if "text" in item:
-            text_history += f"{i}. (Teks) {item['text']}\n"
-        elif "file_path" in item:
-            text_history += f"{i}. (Foto) {item['file_id']}\n"
+    # Kalau sudah join
+    if context.args:
+        key = context.args[0]
+        if key in DATA:
+            file_id = DATA[key]["file_id"]
+            caption = DATA[key]["caption"]
 
-    await update.message.reply_text(text_history)
+            try:
+                await update.message.reply_photo(
+                    photo=file_id,
+                    caption=caption
+                )
+            except Exception as e:
+                await update.message.reply_text("⚠️ Gagal mengirim foto.")
+                print(f"Error kirim foto: {e}")
+        else:
+            await update.message.reply_text("⚠️ Link tidak valid atau sudah kadaluarsa.")
+    else:
+        await update.message.reply_text("Halo Bub 👋 Donatenya mana?")
 
-
-# ---------------------------
-# Handler teks
-# ---------------------------
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    text = update.message.text
-
-    data = load_data()
-    if user_id not in data:
-        data[user_id] = {"history": []}
-
-    data[user_id]["history"].append({"text": text})
-    save_data(data)
-
-    keyboard = [[InlineKeyboardButton("Coba Lagi", callback_data="retry_text")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        f"Teks berhasil disimpan!\n\nIsi: {text}",
-        reply_markup=reply_markup
-    )
-
-
-# ---------------------------
-# Handler foto
-# ---------------------------
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = load_data()
-
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    file_id = str(uuid.uuid4()) + ".jpg"
-    file_path = f"downloads/{file_id}"
-
-    os.makedirs("downloads", exist_ok=True)
-    await file.download_to_drive(file_path)
-
-    if user_id not in data:
-        data[user_id] = {"history": []}
-
-    data[user_id]["history"].append({"file_id": file_id, "file_path": file_path})
-    save_data(data)
-
-    keyboard = [[InlineKeyboardButton("Coba Lagi", callback_data="retry_photo")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_photo(
-        photo=open(file_path, "rb"),
-        caption="Foto berhasil disimpan!",
-        reply_markup=reply_markup
-    )
-
-
-# ---------------------------
-# Inline button handler
-# ---------------------------
+# Handler untuk tombol coba lagi
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(query.from_user.id)
-    data = load_data()
 
-    if query.data == "retry_start":
-        keyboard = [[InlineKeyboardButton("Coba Lagi", callback_data="retry_start")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text("Silakan kirim pesan atau foto lagi.", reply_markup=reply_markup)
+    if query.data.startswith("retry_"):
+        key = query.data.replace("retry_", "").strip()
+        if key:
+            await start(update, context)  # panggil ulang start dengan argumen lama
+        else:
+            await start(update, context)
 
-    elif query.data == "retry_text":
-        if user_id in data and data[user_id]["history"]:
-            last_entry = next((x for x in reversed(data[user_id]["history"]) if "text" in x), None)
-            if last_entry:
-                await query.message.reply_text(f"Ulang teks terakhir:\n{last_entry['text']}")
-            else:
-                await query.message.reply_text("Tidak ada teks di history.")
+# Handler foto masuk dari user
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.photo:
+        return
 
-    elif query.data == "retry_photo":
-        if user_id in data and data[user_id]["history"]:
-            last_entry = next((x for x in reversed(data[user_id]["history"]) if "file_path" in x), None)
-            if last_entry:
-                await query.message.reply_photo(
-                    photo=open(last_entry["file_path"], "rb"),
-                    caption="Ulang foto terakhir!"
-                )
-            else:
-                await query.message.reply_text("Tidak ada foto di history.")
+    caption = update.message.caption if update.message.caption else "(Tidak ada caption)"
 
+    # Ambil file_id dari resolusi tertinggi
+    photo = update.message.photo[-1]
+    file_id = photo.file_id
 
-# ---------------------------
+    key = str(uuid.uuid4())[:8]
+    DATA[key] = {
+        "file_id": file_id,
+        "caption": caption
+    }
+    save_data()
+
+    # Buat link
+    bot_username = (await context.bot.get_me()).username
+    link = f"https://t.me/{bot_username}?start={key}"
+
+    try:
+        with open("foto_1.jpg", "rb") as photo_file:
+            await update.message.reply_photo(
+                photo=photo_file,
+                caption=f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+            )
+    except FileNotFoundError:
+        await update.message.reply_text(
+            f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+        )
+
 # Main
-# ---------------------------
 def main():
-    TOKEN = os.getenv("BOT_TOKEN")
-    if not TOKEN:
-        raise ValueError("BOT_TOKEN tidak ditemukan di Railway environment!")
-
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
+    app.add_handler(CommandHandler("retry", start))
+    app.add_handler(MessageHandler(filters.ALL, handle_photo))
 
+    print("🤖 Bot aktif dengan proteksi member.")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
