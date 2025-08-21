@@ -2,120 +2,121 @@ import os
 import json
 import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-)
-from telegram.error import BadRequest
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# === CONFIG VIA ENV (Railway Variables) ===
-TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))   # contoh: -100123456789
-GROUP_ID = int(os.getenv("GROUP_ID"))       # contoh: -100987654321
+# File untuk menyimpan data
 DATA_FILE = "data.json"
 
-# === LOAD / SAVE DATA ===
+# Load data history
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {}
+    if not os.path.exists(DATA_FILE):
+        return {}
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
+# Simpan data history
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-DATA = load_data()
-
-# === CEK MEMBER ===
-async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        ch_member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
-        gp_member = await context.bot.get_chat_member(GROUP_ID, user_id)
-        return (ch_member.status in ["member", "administrator", "creator"]) and \
-               (gp_member.status in ["member", "administrator", "creator"])
-    except BadRequest:
-        return False
-
-# === /START HANDLER ===
+# Fungsi start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    args = context.args
+    user_id = str(update.effective_user.id)
+    data = load_data()
 
-    if not await check_membership(user.id, context):
-        # Tombol Join + Coba Lagi
-        keyboard = [
-            [
-                InlineKeyboardButton("📢 Join Ch", url=f"https://t.me/{abs(CHANNEL_ID)}"),
-                InlineKeyboardButton("👥 Join Gc", url=f"https://t.me/{abs(GROUP_ID)}"),
-            ],
-            [InlineKeyboardButton("🔄 Coba Lagi", callback_data="retry_start")]
-        ]
-        await update.message.reply_text(
-            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+    if user_id not in data:
+        data[user_id] = {"history": []}
+        save_data(data)
 
-    if args:  # Jika akses via link unik
-        key = args[0]
-        if key in DATA:
-            file_url = DATA[key]["file_url"]
-            await update.message.reply_photo(photo=file_url, caption="📸 Berikut foto hasil convert kamu!")
-        else:
-            await update.message.reply_text("⚠️ Link tidak valid atau sudah kadaluarsa.")
-    else:
-        await update.message.reply_text("✅ Bot aktif! Kirim fotonya untuk di-convert.")
+    keyboard = [
+        [InlineKeyboardButton("Coba Lagi", callback_data="retry_start")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-# === CALLBACK RETRY ===
-async def retry_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Halo! Kirim foto untuk saya convert.",
+        reply_markup=reply_markup
+    )
+
+# Handler foto
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    data = load_data()
+
+    photo = update.message.photo[-1]
+    file = await photo.get_file()
+    file_id = str(uuid.uuid4()) + ".jpg"
+    file_path = f"downloads/{file_id}"
+
+    os.makedirs("downloads", exist_ok=True)
+    await file.download_to_drive(file_path)
+
+    # Simpan ke history user
+    history_entry = {
+        "file_id": file_id,
+        "file_path": file_path,
+    }
+    data[user_id]["history"].append(history_entry)
+    save_data(data)
+
+    keyboard = [
+        [InlineKeyboardButton("Coba Lagi", callback_data="retry_photo")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_photo(
+        photo=open(file_path, "rb"),
+        caption="Foto berhasil di-convert!",
+        reply_markup=reply_markup
+    )
+
+# Handler tombol inline
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Jalankan ulang start seperti user ketik /start
-    fake_update = Update(update.update_id, message=query.message)
-    fake_update.message.from_user = query.from_user
-    await start(fake_update, context)
 
-# === CONVERT FOTO & GENERATE LINK ===
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not await check_membership(user.id, context):
+    user_id = str(query.from_user.id)
+    data = load_data()
+
+    if query.data == "retry_start":
         keyboard = [
-            [
-                InlineKeyboardButton("📢 Join Ch", url=f"https://t.me/{abs(CHANNEL_ID)}"),
-                InlineKeyboardButton("👥 Join Gc", url=f"https://t.me/{abs(GROUP_ID)}"),
-            ],
-            [InlineKeyboardButton("🔄 Coba Lagi", callback_data="retry_start")]
+            [InlineKeyboardButton("Coba Lagi", callback_data="retry_start")]
         ]
-        await update.message.reply_text(
-            "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(
+            "Halo! Kirim foto untuk saya convert.",
+            reply_markup=reply_markup
         )
-        return
 
-    file = await update.message.photo[-1].get_file()
-    file_url = file.file_path
+    elif query.data == "retry_photo":
+        if user_id in data and data[user_id]["history"]:
+            last_entry = data[user_id]["history"][-1]
+            file_path = last_entry["file_path"]
 
-    key = str(uuid.uuid4())
-    DATA[key] = {"file_url": file_url, "user_id": user.id}
-    save_data(DATA)
+            keyboard = [
+                [InlineKeyboardButton("Coba Lagi", callback_data="retry_photo")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-    bot_username = (await context.bot.get_me()).username
-    share_link = f"https://t.me/{bot_username}?start={key}"
+            await query.message.reply_photo(
+                photo=open(file_path, "rb"),
+                caption="Foto terakhir diulang!",
+                reply_markup=reply_markup
+            )
+        else:
+            await query.message.reply_text("Belum ada foto sebelumnya.")
 
-    await update.message.reply_text(f"✅ Foto berhasil di-convert!\n\n🔗 Link share: {share_link}")
-
-# === MAIN ===
 def main():
+    TOKEN = os.getenv("BOT_TOKEN")  # Ambil token dari Railway variable
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN tidak ditemukan di environment variables.")
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(retry_callback, pattern="^retry_start$"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
