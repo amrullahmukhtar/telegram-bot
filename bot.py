@@ -1,29 +1,19 @@
-import json, os, uuid
-from flask import Flask
-from threading import Thread
+import json
+import os
+import uuid
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ====== KEEP ALIVE SECTION ======
-app = Flask('')
+# Ambil token dari environment variable
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ BOT_TOKEN belum di-set di environment variable!")
 
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-# =================================
-
-TOKEN = "7238254596:AAH81y0LUS84kaqOVwc4TsN8QzKJIocBTbo"
 DATA_FILE = "data.json"
 
-CHANNEL_ID = -1002792301572
-GROUP_ID = -1002808214921
+# Ganti dengan ID channel & group kamu
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002792301572"))
+GROUP_ID = int(os.getenv("GROUP_ID", "-1002808214921"))
 
 # Load data
 if os.path.exists(DATA_FILE):
@@ -32,22 +22,25 @@ if os.path.exists(DATA_FILE):
 else:
     DATA = {}
 
+# Simpan data
 def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(DATA, f)
 
-async def is_member(bot, user_id):
+# Cek apakah user sudah join channel & group
+async def is_member(bot, user_id: int) -> bool:
     try:
         ch_status = await bot.get_chat_member(CHANNEL_ID, user_id)
         gc_status = await bot.get_chat_member(GROUP_ID, user_id)
-        if (ch_status.status not in ["left", "kicked"]) and (gc_status.status not in ["left", "kicked"]):
-            return True
-        else:
-            return False
+        return (
+            ch_status.status not in ["left", "kicked"]
+            and gc_status.status not in ["left", "kicked"]
+        )
     except Exception as e:
-        print(f"Error cek member: {e}")
+        print(f"⚠️ Error cek member: {e}")
         return False
 
+# /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -55,7 +48,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🚫 Kamu harus join dulu ke Channel & Group sebelum bisa akses konten!\n\n"
             "👉 Channel: https://t.me/+PmiJeujimNA1MWM9\n"
-            "👉 Group: https://t.me/+PmiJeujimNA1MWM9"
+            "👉 Group: https://t.me/+l6NLPfofBHg1N2Q1"
         )
         return
 
@@ -64,35 +57,59 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if key in DATA:
             file_id = DATA[key]["file_id"]
             caption = DATA[key]["caption"]
-            await update.message.reply_photo(photo=file_id, caption=caption)
+
+            try:
+                await update.message.reply_photo(
+                    photo=file_id,
+                    caption=caption
+                )
+            except Exception as e:
+                await update.message.reply_text("⚠️ Gagal mengirim foto.")
+                print(f"Error kirim foto: {e}")
         else:
             await update.message.reply_text("⚠️ Link tidak valid atau sudah kadaluarsa.")
     else:
-        await update.message.reply_text("Halo Bub 👋 kirim foto + caption, nanti aku kasih link unik.")
+        await update.message.reply_text("Halo Bub 👋 Donatenya mana?")
 
+# Handler foto masuk dari user
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]
-    file_id = photo.file_id
+    if not update.message or not update.message.photo:
+        return
+
     caption = update.message.caption if update.message.caption else "(Tidak ada caption)"
 
+    # Ambil file_id dari resolusi tertinggi
+    photo = update.message.photo[-1]
+    file_id = photo.file_id
+
     key = str(uuid.uuid4())[:8]
-    DATA[key] = {"file_id": file_id, "caption": caption}
+    DATA[key] = {
+        "file_id": file_id,
+        "caption": caption
+    }
     save_data()
 
+    # Buat link
     bot_username = (await context.bot.get_me()).username
     link = f"https://t.me/{bot_username}?start={key}"
 
-    await update.message.reply_text(
-        f"✅ Foto diterima!\n\nCaption: {caption}\n\n🔗 Link unik untuk share (hanya bisa dibuka member ch & gc):\n{link}"
-    )
+    try:
+        with open("foto_1.jpg", "rb") as photo_file:
+            await update.message.reply_photo(
+                photo=photo_file,
+                caption=f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+            )
+    except FileNotFoundError:
+        await update.message.reply_text(
+            f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
+        )
 
+# Main
 def main():
-    keep_alive()  # 🔥 Tambahkan ini agar bot tetap aktif di Render
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
-    print("Bot berjalan dengan proteksi join ch & gc...")
+    print("🤖 Bot aktif dengan proteksi member.")
     app.run_polling()
 
 if __name__ == "__main__":
