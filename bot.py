@@ -11,7 +11,10 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Ambil token dari environment variable
+# ===============================
+# CONFIG
+# ===============================
+# Ambil token dari environment variable (lebih aman)
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("❌ BOT_TOKEN belum di-set di environment variable!")
@@ -22,6 +25,9 @@ DATA_FILE = "data.json"
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002792301572"))
 GROUP_ID = int(os.getenv("GROUP_ID", "-1002808214921"))
 
+# ===============================
+# DATA MANAGEMENT
+# ===============================
 # Load data
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r") as f:
@@ -34,7 +40,9 @@ def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump(DATA, f)
 
-# Cek apakah user sudah join channel & group
+# ===============================
+# CHECK MEMBERSHIP
+# ===============================
 async def is_member(bot, user_id: int) -> bool:
     try:
         ch_status = await bot.get_chat_member(CHANNEL_ID, user_id)
@@ -47,10 +55,13 @@ async def is_member(bot, user_id: int) -> bool:
         print(f"⚠️ Error cek member: {e}")
         return False
 
-# /start handler
+# ===============================
+# START COMMAND
+# ===============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
+    # Cek apakah sudah join
     if not await is_member(context.bot, user_id):
         keyboard = [
             [
@@ -73,6 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    # Kalau pakai argumen (link khusus)
     if context.args:
         key = context.args[0]
         if key in DATA:
@@ -89,7 +101,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Halo Bub 👋 Donatenya mana?")
 
-# Handler foto masuk dari user
+# ===============================
+# HANDLE FOTO DARI USER
+# ===============================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.photo:
         return
@@ -119,7 +133,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{caption}\n\n🔗 Link (khusus member group & channel):\n{link}"
         )
 
-# Handler tombol (callback query)
+# ===============================
+# CALLBACK HANDLER (BUTTON)
+# ===============================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -128,7 +144,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Panggil ulang start tanpa argumen
         await start(update, context)
 
-# Main
+# ===============================
+# MAIN FUNCTION
+# ===============================
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
